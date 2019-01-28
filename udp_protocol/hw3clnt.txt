@@ -1,0 +1,275 @@
+//--------------------------------------------------------------
+
+//--------------------------------------------------------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string.h>
+#include <math.h>
+#define MAXLINE  1000 //최대값 지정
+#define BLOCK 1000 //BLOCK 단위로 저장
+
+struct sockaddr_in servaddr;
+int addrlen = sizeof(servaddr); //서버 주소의 size를 저장
+int ack=0;
+int seq=0;
+int len=0;
+int total_len;
+int i;
+int Fin=0;
+char seqchar ='0';
+char recvchar;
+char ebuf[MAXLINE+4+10]="";
+char buf[MAXLINE+1+1+10+1];
+char buf2[MAXLINE+1+1+10+1] ="end of file";
+int lastLen;
+
+void binary(char * buf){
+	int i;
+	//int temp= strlen(buf);
+	int temp = BLOCK;  //바이너리 할 숫자.
+	//int modtemp = strlen(buf);
+	int modtemp = BLOCK;
+	int remainder;
+	int tval=1;
+	int j;
+	//char *temporary= "0000000000";
+	//strcat(buf,temporary);
+	//buf[temp+10]='\0';
+	printf(" \nbefore arith = %d \n",strlen(buf)); 
+	for(i=0; i<10;i++){
+		remainder = modtemp%2;
+		modtemp/=2;
+		
+	if(remainder == 0)
+	buf[BLOCK+10-i] = '0';  //fixed
+	else
+	buf[BLOCK+10-i] = '1';
+
+
+	
+	remainder =0;
+
+	}
+	buf[temp+11]='\0';
+	return;
+}
+void Lbinary(char * buf){
+	int i;
+	//int temp= strlen(buf);
+	int temp = lastLen;  //바이너리 할 숫자.
+	//int modtemp = strlen(buf);
+	int modtemp = lastLen;
+	int remainder;
+	int tval=1;
+	int j;
+	//char *temporary= "0000000000";
+	//strcat(buf,temporary);
+	//buf[temp+10]='\0';
+	printf(" \nbefore arith = %d \n",strlen(buf)); 
+	for(i=0; i<10;i++){
+		remainder = modtemp%2;
+		modtemp/=2;
+		
+	if(remainder == 0)
+	buf[BLOCK+10-i] = '0';  //fixed
+	else
+	buf[BLOCK+10-i] = '1';
+
+
+	
+	remainder =0;
+
+	}
+	buf[BLOCK+11]='\0';
+	return;
+}
+//메시지 전송 부분 처리
+void sendMessage(int s, char* buf) {
+	int check;
+	binary(buf);
+    if((check=sendto(s, buf, BLOCK+1+10, 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {     //전송이 BLOCK + 1 인 이유는 BLOCK만큼 buf data size + seq number
+        perror("sendto fail");
+        exit(0);
+    }
+	
+	
+	printf(" NOMALSEND!!!!!!!!!!!!!!!!!!!!!!!!!!!! %d \n\n\n",check);
+	printf(" \n binary check %s, after strlen = %d\n",buf,strlen(buf));
+	return;
+}
+void sendLast(int s, char* buf) {
+	int check;
+   	Lbinary(buf);
+	 if((check=sendto(s , buf , BLOCK+1+10, 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {// strlen 자체에 seq number가 들어가기 때문에 굳이 +1 하지 않음.
+        perror("sendto fail");
+        exit(0);
+    }
+	printf(" SENDLAST!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n%d", check);
+	
+	printf(" \n binary check %s, after strlen = %d\n",buf,strlen(buf));
+	return;
+}
+
+
+
+void recvAck(int s, char* buf){
+		sendMessage(s,buf);
+	printf("%s\n",buf);
+	if((recvfrom(s,&seqchar, 1, 0,(struct sockaddr *)&servaddr, &addrlen)) < 0) {
+			perror("timeout\n");
+			recvAck(s, buf);
+	}else
+	return;
+}
+void recvIntAck(int s, int* buf){
+		if((sendto(s, buf, BLOCK+1+10, 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {     //전송이 BLOCK + 1 인 이유는 BLOCK만큼 buf data size + seq number
+    	    perror("sendto fail");
+     	   exit(0);
+   	 }	printf("%s\n",buf);
+	if((recvfrom(s,buf, 1, 0,(struct sockaddr *)&servaddr, &addrlen)) < 0) {
+			perror("timeout\n");
+			recvIntAck(s, buf);
+	}else
+	return;
+}
+
+int main(int argc, char *argv[]) {
+
+	int i;
+	struct timeval optVal = {1, 0};
+	int optLen = sizeof(optVal);
+    int s; //socket
+    int nbyte;
+    int ackbyte;
+    
+    FILE *stream; //파일 입출력
+
+    //./udp_echocli.c ip주소, 포트번호, 입출력 파일명
+    if(argc != 4) {
+        printf("usage: %s ip_address port_number filename\n", argv[0]);
+        exit(0);
+    }
+
+
+
+
+    //socket 연결 0보다 작으면 Error
+    if((s = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket fail");
+        exit(0);
+    }
+    
+    //서버 주소 구조
+    memset(&servaddr, 0, addrlen); //bzero((char *)&servaddr, sizeof(servaddr));
+    servaddr.sin_family = AF_INET; //인터넷 Addr Family
+    servaddr.sin_addr.s_addr = inet_addr(argv[1]); //argv[1]에서 주소를 가져옴
+    servaddr.sin_port = htons(atoi(argv[2])); //argv[2]에서 port를 가져옴
+	
+
+	setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &optVal, optLen);
+
+	if((stream = fopen(argv[3], "rb")) == NULL) { //argv[3]의 파일을 open
+		printf("Error");
+	 	exit(1);
+	}
+	
+        	sendMessage(s,argv[3]);
+	//파일 제목 보내기
+	//sendMessage(s,'\0');
+	fseek(stream,0,SEEK_END);
+	total_len = ftell(stream);
+	len = total_len;
+	fseek(stream,0,SEEK_SET);
+	printf("total = %d\n", total_len);
+    	//stream 파일 읽기 
+	while(!feof(stream)) {
+		//buf[0] = '\0'; //buffer를 초기화
+		//buf = (char*)malloc(sizeof(char)*(MAXLINE+1+1));
+
+		lastLen=len;
+
+		total_len=fread(buf,1, BLOCK,stream);
+		//파일에서 data 읽기. BLOCK만큼
+		//buf[BLOCK] 에 seq num 을 넣으면 buf[0]~ buf[BLOCK] 까지 BLOCK +1 만큼 data 저장.
+		
+		
+
+		
+		printf("Send : %s\n", buf); //보낼 메시지 출력
+		
+		
+		if(len<1000){
+		//buf[len]='\0';   // 문제시 복구
+		
+		}
+
+		
+		printf(" \n len =  %d  buf_len = %d \n " , len, strlen(buf));
+		
+		if(len>1000){
+		buf[BLOCK]=seqchar;
+		//buf[BLOCK] = '\0';
+   		sendMessage(s, buf);
+}
+		else{
+		buf[BLOCK]= seqchar;
+		//buf[BLOCK]='\0';
+		sendLast(s,buf);
+	
+		}
+	if((recvfrom(s,&seqchar, 1, 0,(struct sockaddr *)&servaddr, &addrlen)) < 0) {
+			perror("timeout\n");
+
+			recvAck(s, buf);
+			
+	}
+	
+		len = len - total_len;
+	seq = (seq+1)%2 ;
+	if(seq==0)
+		seqchar = '0';
+		else
+		seqchar = '1';
+	
+
+
+	}
+		
+	fclose(stream);
+	if((sendto(s,  "end of file",12 , 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {     //전송이 BLOCK + 1 인 이유는 BLOCK만큼 buf data size + seq number
+       	 perror("sendto fail");
+   	     exit(0);
+   	 }	
+
+ 	if((sendto(s, &Fin, 1, 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {     //전송이 BLOCK + 1 인 이유는 BLOCK만큼 buf data size + seq number
+       	 perror("sendto fail");
+   	     exit(0);
+   	 }
+	
+	if((recvfrom(s,&Fin, 1, 0,(struct sockaddr *)&servaddr, &addrlen)) < 0) {
+			perror("timeout\n");
+			recvIntAck(s,&Fin);
+	}
+	
+	Fin+=1;
+	
+	if((recvfrom(s,&Fin, 1, 0,(struct sockaddr *)&servaddr, &addrlen)) < 0) {
+			perror("timeout\n");
+			recvIntAck(s,&Fin);	
+	}
+	if(Fin==1)
+	if((sendto(s, &Fin, 1, 0, (struct sockaddr *)&servaddr, addrlen)) < 0) {     //전송이 BLOCK + 1 인 이유는 BLOCK만큼 buf data size + seq number
+       	 perror("sendto fail");
+   	     exit(0);
+   	 }
+	
+	
+    close(s); //socket close
+    return 0;
+}
